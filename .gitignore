@@ -130,3 +130,10 @@ dmypy.json
 
 # for debug
 .idea/
+
+# bin
+anya-dic.db
+anya.mdl
+
+# for debuh
+out/
