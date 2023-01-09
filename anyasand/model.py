@@ -4,10 +4,9 @@ import torch.nn.functional as F
 
 
 class AnyaAE(nn.Module):
-    def __init__(self, word_vec_len, pos_len, hidden_dim=128, z_dim=32, hid_num=1):
+    def __init__(self, in_dim, hidden_dim=512, z_dim=32, hid_num=1):
         super().__init__()
         self._hid_num = hid_num
-        in_dim = word_vec_len + pos_len
 
         # encoder
         self._in_layer = nn.Linear(in_dim, hidden_dim)
