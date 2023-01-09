@@ -146,8 +146,21 @@ class DictionaryTrainer(Dictionary):
         super().__init__(db_path, vec_path)
         self._pid_eye = np.eye(self.pos_len, dtype="float32")
 
+    @property
+    def train_vec_size(self):
+        return (self.word_vec_size + self.pos_len) * 2
+
+    def _vec_eye(self, wid):
+        return self._pid_eye[(self._words[str(wid)]["pos"] - 1)]
+
     def get(self, wid):
-        return self._words[str(wid)]["vec"], self._pid_eye[(self._words[str(wid)]["pos"] - 1)]
+        return self._words[str(wid)]["vec"], self._vec_eye(wid)
+
+    def get_dwords(self, wid_f, wid_s):
+        return np.concatenate([self._words[str(wid_f)]["vec"],
+                               self._vec_eye(wid_f),
+                               self._words[str(wid_s)]["vec"],
+                               self._vec_eye(wid_s)])
 
     def wid_insert(self, name, read, grp_name, sub_name):
         pos_id = self._pid_from_name(grp_name, sub_name)

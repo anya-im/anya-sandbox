@@ -14,36 +14,26 @@ from anyasand.dictionary import DictionaryTrainer
 class AnyaDatasets(Dataset):
     def __init__(self, in_path, dictionary):
         self._dict = dictionary
-        self._word_index = []
+        self._trigram_vec = []
 
         for name in glob.glob(in_path + '/*.json'):
             with open(name, "r") as f:
                 data = json.load(f)
                 for body in data["bodies"]:
-                    word_index = [[self._dict.wid_bos], [body[0]]]
-                    for i, _ in enumerate(body):
-                        if i + 1 < len(body):
-                            word_index[0].append(body[i])
-                            word_index[1].append(body[i+1])
-                    self._word_index.append(word_index)
+                    if len(body) > 1:
+                        inv = self._dict.get_dwords(self._dict.wid_bos, body[0])
+                        anv = self._dict.get_dwords(body[0], body[1])
+                        for i, _ in enumerate(body):
+                            if i + 2 < len(body):
+                                inv = np.vstack((inv, self._dict.get_dwords(body[i], body[i + 1])))
+                                anv = np.vstack((anv, self._dict.get_dwords(body[i + 1], body[i + 2])))
+                        self._trigram_vec.append([inv, anv])
 
     def __len__(self):
-        return len(self._word_index)
+        return len(self._trigram_vec)
 
     def __getitem__(self, idx):
-        crt_t = np.empty((0, self._dict.word_vec_size + self._dict.pos_len), dtype="float32")
-        next_t = np.empty((0, self._dict.word_vec_size + self._dict.pos_len), dtype="float32")
-
-        for i in range(len(self._word_index[idx][0])):
-            crt_t_tmp, crt_eye_tmp = self._dict.get(self._word_index[idx][0][i])
-            crt_t_tmp = np.concatenate([crt_t_tmp, crt_eye_tmp])
-            crt_t = np.vstack((crt_t, crt_t_tmp))
-
-            next_t_tmp, next_eye_tmp = self._dict.get(self._word_index[idx][1][i])
-            next_t_tmp = np.concatenate([next_t_tmp, next_eye_tmp])
-            next_t = np.vstack((next_t, next_t_tmp))
-
-        return crt_t, next_t
+        return self._trigram_vec[idx][0], self._trigram_vec[idx][1]
 
 
 class Trainer:
@@ -58,7 +48,7 @@ class Trainer:
         train_loader = torch.utils.data.DataLoader(self._trn_data, batch_size=1, shuffle=True, pin_memory=True)
         test_loader = torch.utils.data.DataLoader(self._tst_data, batch_size=1, shuffle=True, pin_memory=True)
 
-        model = AnyaAE(self._dict.word_vec_size, self._dict.pos_len).to(self._device)
+        model = AnyaAE(self._dict.train_vec_size).to(self._device)
         optimizer = optim.Adam(model.parameters(), lr=0.001)
 
         for i in range(epoch):
@@ -115,11 +105,12 @@ class Trainer:
         cnt = 0
         correct = 0
         for i, y_res in enumerate(y[0]):
-            cnt += 1
-            y_res_pos = torch.argmax(y_res[self._dict.word_vec_size:])
-            y_in_pos = torch.argmax(y_in[0][i][self._dict.word_vec_size:])
-            if y_res_pos.item() == y_in_pos.item():
-                correct += 1
+            if y_res.dim() > 0:
+                cnt += 1
+                y_res_pos = torch.argmax(y_res[-self._dict.pos_len:])
+                y_in_pos = torch.argmax(y_in[0][i][-self._dict.pos_len:])
+                if y_res_pos.item() == y_in_pos.item():
+                    correct += 1
         return cnt, correct
 
 
