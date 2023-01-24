@@ -31,9 +31,22 @@ class Dictionary(metaclass=ABCMeta):
 
             self._words, self._trie = self._build_db()
 
+        self._pid_eye = np.eye(self.pos_len, dtype="float32")
+
     @property
     def wid_bos(self):
         return self._wid_BOS
+
+    @property
+    def single_vec_size(self):
+        return self.word_vec_size + self.pos_len
+
+    @property
+    def input_vec_size(self):
+        return self.single_vec_size
+
+    def _vec_eye(self, wid):
+        return self._pid_eye[(self._words[str(wid)]["pos"] - 1)]
 
     def _build_db(self):
         words = {}
@@ -56,7 +69,7 @@ class Dictionary(metaclass=ABCMeta):
         return words, trie
 
     def wid2name(self, wid):
-        return self._words[wid.decode()]["name"]
+        return self._words[wid]["name"]
 
     def wid2vec(self, wid):
         return self._words[wid.decode()]["vec"]
@@ -138,23 +151,17 @@ class Dictionary(metaclass=ABCMeta):
     def get_name(self, wid):
         self._cur.execute('SELECT name FROM words where id = ?;', (wid,))
         return self._cur.fetchone()[0]
-        #return self._words[str(wid)]["name"]
 
 
 class DictionaryTrainer(Dictionary):
     def __init__(self, db_path="./anya-dic.db", vec_path="./anya-fasttext.vec"):
         super().__init__(db_path, vec_path)
-        self._pid_eye = np.eye(self.pos_len, dtype="float32")
-
-    @property
-    def train_vec_size(self):
-        return (self.word_vec_size + self.pos_len) * 2
-
-    def _vec_eye(self, wid):
-        return self._pid_eye[(self._words[str(wid)]["pos"] - 1)]
 
     def get(self, wid):
         return self._words[str(wid)]["vec"], self._vec_eye(wid)
+
+    def get_sword(self, wid):
+        return np.concatenate([self._words[str(wid)]["vec"], self._vec_eye(wid)])
 
     def get_dwords(self, wid_f, wid_s):
         return np.concatenate([self._words[str(wid_f)]["vec"],
@@ -183,20 +190,25 @@ class DictionaryTrainer(Dictionary):
 class DictionaryConverter(Dictionary):
     def __init__(self, db_path="./anya-dic.db", vec_path="./anya-fasttext.vec"):
         super().__init__(db_path, vec_path)
-        self._pid_eye = np.eye(self.pos_len, dtype="float32")
 
     def get(self, wid):
         return np.concatenate([self._words[str(wid)]["vec"], self._pid_eye[(self._words[str(wid)]["pos"] - 1)]])
 
+    def get_dwords(self, wid_f, wid_s):
+        return np.concatenate([self._words[str(wid_f)]["vec"],
+                               self._vec_eye(wid_f),
+                               self._words[str(wid_s)]["vec"],
+                               self._vec_eye(wid_s)])
+
     def gets(self, ym):
         return self._trie[ym]
+        #return [wid_b.encode() for wid_b in self._trie[ym]]
 
     def build_word_tree(self, in_text):
-        # for convert
         word_set = [[] for _ in range(len(in_text))]
         for i in range(len(in_text)):
             for prefix in self._trie.prefixes(in_text[i:]):
-                word_set[i].append(prefix)
+                word_set[i+len(prefix)-1].append(prefix)
         return word_set
 
 

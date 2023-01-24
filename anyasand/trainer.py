@@ -14,26 +14,28 @@ from anyasand.dictionary import DictionaryTrainer
 class AnyaDatasets(Dataset):
     def __init__(self, in_path, dictionary):
         self._dict = dictionary
-        self._trigram_vec = []
+        self._bi_gram_vec = []
 
         for name in glob.glob(in_path + '/*.json'):
             with open(name, "r") as f:
                 data = json.load(f)
                 for body in data["bodies"]:
-                    if len(body) > 1:
-                        inv = self._dict.get_dwords(self._dict.wid_bos, body[0])
-                        anv = self._dict.get_dwords(body[0], body[1])
-                        for i, _ in enumerate(body):
-                            if i + 2 < len(body):
-                                inv = np.vstack((inv, self._dict.get_dwords(body[i], body[i + 1])))
-                                anv = np.vstack((anv, self._dict.get_dwords(body[i + 1], body[i + 2])))
-                        self._trigram_vec.append([inv, anv])
+                    for i, _ in enumerate(body):
+                        if i == 0:
+                            inv = self._dict.get_sword(self._dict.wid_bos)
+                            anv = self._dict.get_sword(body[0])
+                        elif i + 1 < len(body):
+                            inv = np.vstack((inv, self._dict.get_sword(body[i])))
+                            anv = np.vstack((anv, self._dict.get_sword(body[i + 1])))
+                        else:
+                            pass
+                    self._bi_gram_vec.append([inv, anv])
 
     def __len__(self):
-        return len(self._trigram_vec)
+        return len(self._bi_gram_vec)
 
     def __getitem__(self, idx):
-        return self._trigram_vec[idx][0], self._trigram_vec[idx][1]
+        return self._bi_gram_vec[idx][0], self._bi_gram_vec[idx][1]
 
 
 class Trainer:
@@ -48,7 +50,7 @@ class Trainer:
         train_loader = torch.utils.data.DataLoader(self._trn_data, batch_size=1, shuffle=True, pin_memory=True)
         test_loader = torch.utils.data.DataLoader(self._tst_data, batch_size=1, shuffle=True, pin_memory=True)
 
-        model = AnyaAE(self._dict.train_vec_size).to(self._device)
+        model = AnyaAE(self._dict.input_vec_size).to(self._device)
         optimizer = optim.Adam(model.parameters(), lr=0.001)
 
         for i in range(epoch):
