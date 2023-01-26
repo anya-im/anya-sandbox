@@ -51,7 +51,7 @@ class Trainer:
         test_loader = torch.utils.data.DataLoader(self._tst_data, batch_size=1, shuffle=True, pin_memory=True)
 
         model = AnyaAE(self._dict.input_vec_size).to(self._device)
-        optimizer = optim.Adam(model.parameters(), lr=0.001)
+        optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
         for i in range(epoch):
             model.train()
@@ -121,7 +121,7 @@ def main():
     arg_parser.add_argument('-i', '--in_path', help='input training directory path', default="./out/")
     arg_parser.add_argument('-d', '--db_path', help='dictionary database path', default="./anya-dic.db")
     arg_parser.add_argument('-o', '--out_path', help='output model file path', default="anya.mdl")
-    arg_parser.add_argument('-e', '--epoch_num', help='epoch num', default=10)
+    arg_parser.add_argument('-e', '--epoch_num', help='epoch num', default=30)
     args = arg_parser.parse_args()
 
     trainer = Trainer(args.in_path, args.db_path)

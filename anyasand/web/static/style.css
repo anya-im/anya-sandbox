@@ -1,0 +1,30 @@
+h1 {
+    color: green;
+}
+
+form {
+   line-height: 2;
+}
+
+.content {
+    display: table;
+    width: 1200px;
+}
+
+input[type=radio] {
+    width: 30px;
+    height: 30px;
+    vertical-align: middle;
+    line-height: 200%;
+}
+
+.expander {display: none;}
+.expander-label {
+    display:block;
+}
+.expander-content {
+    visibility: hidden;
+}
+.expander:checked + .expander-label + .expander-content {
+    visibility: visible;
+}
