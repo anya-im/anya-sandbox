@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>!!Anya Web!!</title>
+    <link href="{{ url_for('static', path='/style.css?ver=1.0') }}" rel="stylesheet">
+    <!--script src="https://cdn.jsdelivr.net/npm/vue@3.2.33/dist/vue.global.prod.js"></script -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.10/dist/vue.js"></script>
+</head>
+
+<body>
+<div class="content">
+<div id="app">
+    <input type="text" v-model="inputText" v-on:input="convertText"/><br/>
+    [[ convText ]]
+</div>
+</div>
+</body>
+
+<script>
+    const app = new Vue({
+        el: '#app',
+        delimiters: ['[[', ']]'],
+        data: {
+            inputText: "",
+            convText: ""
+        },
+
+        methods: {
+            convertText: function() {
+                const getUrl = "./convert?text=" + this.inputText
+                fetch(getUrl, {method: "GET"})
+                .then((data) => {
+                    return data.json();
+                })
+                .then((json) => {
+                    this.convText = json.convText
+                })
+            },
+        }
+    });
+</script>
+</html>

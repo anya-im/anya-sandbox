@@ -5,3 +5,7 @@ tqdm
 pyknp
 marisa-trie
 pyyaml
+fastapi
+uvicorn
+jinja2
+romkan
