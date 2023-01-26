@@ -13,7 +13,7 @@ class Converter:
         self._model.load_state_dict(torch.load(dnn_model))
         self._criterion = nn.MSELoss(reduction='sum')
 
-    def __call__(self, text):
+    def convert(self, text):
         fixed = []
         word_tree = self._dict.build_word_tree(text)
         print(word_tree)
@@ -47,13 +47,7 @@ class Converter:
                                     if min_words["cost"] == 0. or score < min_words["cost"]:
                                         min_words["words"] = copied
                                         min_words["cost"] = score
-
-                                        disp_words = []
-                                        for i, wid in enumerate(copied):
-                                            disp_words.append(self._dict.wid2name(wid))
-                                        print(" ",
-                                              disp_words,
-                                              min_words["cost"])
+                                        #self._debug_print(copied, score)
 
                         else:
                             words = fixed[pre_idx]["words"].copy()
@@ -71,21 +65,26 @@ class Converter:
                                 if min_words["cost"] == 0. or score < min_words["cost"]:
                                     min_words["words"] = copied
                                     min_words["cost"] = score
-
-                                    disp_words = []
-                                    for i, wid in enumerate(copied):
-                                        disp_words.append(self._dict.wid2name(wid))
-                                    print(" ",
-                                          disp_words,
-                                          min_words["cost"])
+                                    #self._debug_print(copied, score)
 
             fixed.append(min_words)
+
+        return "".join(self._connect_words(fixed[len(fixed) - 1]["words"]))
 
     def _get_in_vec(self, words):
         in_vec = self._dict.get(self._dict.wid_bos)
         for wid in words:
             in_vec = np.vstack((in_vec, self._dict.get(wid)))
         return torch.from_numpy(in_vec)
+
+    def _connect_words(self, words):
+        disp_words = []
+        for i, wid in enumerate(words):
+            disp_words.append(self._dict.wid2name(wid))
+        return disp_words
+
+    def _debug_print(self, words, cost):
+        print(" ", self._connect_words(words), cost)
 
 
 def main():
@@ -96,7 +95,7 @@ def main():
     args = arg_parser.parse_args()
 
     converter = Converter(args.model_path, args.db_path)
-    converter(args.text)
+    converter.convert(args.text)
 
 
 if __name__ == "__main__":
