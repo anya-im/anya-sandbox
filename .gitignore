@@ -132,8 +132,14 @@ dmypy.json
 .idea/
 
 # bin
+sudachidic/*.csv
 anya-dic.db
 anya.mdl
 
-# for debuh
+# data
+corpus/*.txt
 out/
+anya-corpus-wakati.txt
+anya-corpus.db
+
+

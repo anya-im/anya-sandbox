@@ -4,13 +4,15 @@ import sqlite3
 import logging
 import argparse
 import struct
+import yaml
+import jaconv
 import marisa_trie
 import numpy as np
 from abc import ABCMeta
 
 
 class Dictionary(metaclass=ABCMeta):
-    def __init__(self, db_path="./anya-dic.db", vec_path=None, vec_size=4, initialize=False):
+    def __init__(self, db_path="./anya-dic.db", vec_path=None, vec_size=8, initialize=False):
         self._words_vec = None
         self._vec_size = vec_size
         self._conn = sqlite3.connect(db_path)
@@ -212,78 +214,98 @@ class DictionaryConverter(Dictionary):
         return word_set
 
 
-class DicBuilder(Dictionary):
+class DicBuilder:
     _dic_csv = [
-        "Assert.csv",
-        "AuxV.csv",
-        "ContentW.csv",
-        "Demonstrative.csv",
-        "Noun.hukusi.csv",
-        "Noun.keishiki.csv",
-        "Noun.koyuu.csv",
-        "Noun.suusi.csv",
-        "Postp.csv",
-        "Prefix.csv",
-        "Special.csv",
-        "Suffix.csv",
-        "Rengo.csv"
+        "small_lex.csv",
+        "core_lex.csv",
+        "notcore_lex.csv"
     ]
 
-    def __init__(self, db_path="./anya-dic.db", vec_path="./anya-fasttext.vec"):
+    def __init__(self, db_path="./anya-dic.db", sudachidic_path="./sudachidic", word_vec_size=8):
+        self._db_path = db_path
+        self._sudachidic_path = sudachidic_path
+        self._word_vec_size = word_vec_size
+
+    def build(self):
         # db initialize
-        if os.path.isfile(db_path):
-            os.remove(db_path)
+        if os.path.isfile(self._db_path):
+            os.remove(self._db_path)
 
-        super().__init__(db_path, vec_path, initialize=True)
+        pos_id_def = os.path.dirname(__file__) + "/data/sudachidic.yml"
+        with open(pos_id_def, 'r') as f:
+            pos_ids = yaml.safe_load(f)["pos-ids"]
 
-    def build(self, in_dic_path, dic_type="juman"):
-        if dic_type == "juman":
-            # create sql table
-            self._cur.execute('CREATE TABLE positions(id INTEGER PRIMARY KEY AUTOINCREMENT, group_id INTEGER, sub_name STRING);')
-            self._cur.execute('CREATE TABLE positions_group(id INTEGER PRIMARY KEY AUTOINCREMENT, name STRING);')
+        conn = sqlite3.connect(self._db_path)
+        cur = conn.cursor()
 
-            # build positions table
-            with open(in_dic_path + "/pos-id.def") as f:
-                pos_table = {}
-                reader = csv.reader(f, delimiter=" ")
-                for row in reader:
-                    pos = row[0].split(",")
-                    if len(pos) >= 2:
-                        if not pos[0] in pos_table:
-                            pos_table[pos[0]] = []
-                        pos_table[pos[0]].append(pos[1])
+        cur.execute("CREATE TABLE positions(id INTEGER PRIMARY KEY AUTOINCREMENT, name STRING);")
+        for pos_name in pos_ids:
+            cur.execute('INSERT INTO positions(name) values(?);', (pos_name,))
 
-            for parent, val in pos_table.items():
-                for sub in val:
-                    self._insert_pid(parent, sub)
+        cur.execute("""
+            CREATE TABLE words(id INTEGER PRIMARY KEY AUTOINCREMENT, name STRING, read STRING, pos INTEGER, vec BLOB);
+            """)
 
-            # build words table
-            self._cur.execute('CREATE TABLE words(id INTEGER PRIMARY KEY AUTOINCREMENT, name STRING, read STRING, pos INTEGER, vec BLOB);')
-            for csv_file in self._dic_csv:
-                with open(in_dic_path + "/" + csv_file) as f:
-                    reader = csv.reader(f, delimiter=",")
-                    try:
-                        for row in reader:
-                            pos_id = self._pid_from_name(row[4], row[5])
-                            self._insert_word(row[0], row[9], pos_id)
-                            logging.info("word : %s / %s (%d)" % (row[0], row[9], pos_id))
-                    except UnicodeDecodeError:
-                        pass
+        for csv_file in self._dic_csv:
+            print(" reading... %s" % csv_file)
+            with open(self._sudachidic_path + "/" + csv_file) as f:
+                reader = csv.reader(f, delimiter=",")
+                try:
+                    for row in reader:
+                        pos_name = row[5] + "." + row[6] + "." + row[7] + "." + row[8]
+                        cur.execute("SELECT id FROM positions WHERE name = ?", (pos_name,))
+                        pos_id = cur.fetchone()[0]
+                        vec_np = np.random.rand(self._word_vec_size)
+                        vec = struct.pack('=%df' % vec_np.size, *vec_np)
+                        cur.execute("INSERT INTO words(name, read, pos, vec) values(?, ?, ?, ?);",
+                                    (row[0], jaconv.kata2hira(row[11]), pos_id, vec))
+                except UnicodeDecodeError:
+                    pass
 
-            # insert BOS
-            self._insert_pid("_BOS", "_BOS")
-            pos_id = self._pid_from_name("_BOS", "_BOS")
-            self._insert_word("_BOS", "_BOS", pos_id)
+        cur.execute('CREATE INDEX words_idx ON words(name, read);')
+        cur.execute('commit;')
+        cur.close()
+        conn.close()
 
-            # create index
-            self._cur.execute('CREATE INDEX words_idx ON words(name, read);')
-            self._is_update = True
+    def insert_vec_from_fasttext(self, fasttext_model="./anya-fasttext.vec"):
+        conn = sqlite3.connect(self._db_path)
+        cur = conn.cursor()
+        update_cnt = 0
+        csv.field_size_limit(1000000000)
 
-        else:
-            logging.error("not support dic_type: %s", dic_type)
+        with open(fasttext_model) as f:
+            reader = csv.reader(f, delimiter=" ")
+            for i, row in enumerate(reader):
+                if i > 0:
+                    vec = np.array([float(row[1]), float(row[2]), float(row[3]), float(row[4]),
+                                    float(row[5]), float(row[6]), float(row[7]), float(row[8])], dtype=np.float16)
+                    vec_pack = struct.pack('=8f', *vec)
 
-        self.commit()
-        self.close()
+                    cur.execute("SELECT id FROM words WHERE name = ?", (row[0],))
+                    for data in cur.fetchall():
+                        wid = data[0]
+                        cur.execute("UPDATE words SET vec = ? WHERE id = ?;", (vec_pack, wid,))
+                        update_cnt += 1
+
+        cur.execute('commit;')
+        cur.close()
+        conn.close()
+
+        print("OK. update_cnt = %d" % update_cnt)
+
+    def insert_bos(self):
+        conn = sqlite3.connect(self._db_path)
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM positions WHERE name = ?", ("BOS.*.*.*",))
+        pos_id = cur.fetchone()[0]
+        vec_np = np.random.rand(self._word_vec_size)
+        vec = struct.pack('=%df' % vec_np.size, *vec_np)
+        cur.execute("INSERT INTO words(name, read, pos, vec) values(?, ?, ?, ?);", ("_BOS", "_BOS", pos_id, vec))
+
+        cur.execute('commit;')
+        cur.close()
+        conn.close()
 
 
 def main():
@@ -291,7 +313,7 @@ def main():
     arg_parser.add_argument('-d', '--db_path', help='dictionary DB path', default="./anya-dic.db")
     args = arg_parser.parse_args()
     builder = DicBuilder(args.db_path)
-    builder.build("/usr/share/mecab/dic/juman/")
+    builder.insert_bos()
 
 
 if __name__ == "__main__":

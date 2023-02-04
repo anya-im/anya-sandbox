@@ -9,3 +9,5 @@ fastapi
 uvicorn
 jinja2
 romkan
+sudachipy
+sudachidict_full
