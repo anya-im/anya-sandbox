@@ -1,6 +1,7 @@
 import argparse
-import glob
+import sqlite3
 import json
+import random
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -12,24 +13,33 @@ from anyasand.dictionary import DictionaryTrainer
 
 
 class AnyaDatasets(Dataset):
-    def __init__(self, in_path, dictionary):
+    def __init__(self, in_path, dictionary, data_size=1000):
         self._dict = dictionary
         self._bi_gram_vec = []
 
-        for name in glob.glob(in_path + '/*.json'):
-            with open(name, "r") as f:
-                data = json.load(f)
-                for body in data["bodies"]:
-                    for i, _ in enumerate(body):
-                        if i == 0:
-                            inv = self._dict.get_sword(self._dict.wid_bos)
-                            anv = self._dict.get_sword(body[0])
-                        elif i + 1 < len(body):
-                            inv = np.vstack((inv, self._dict.get_sword(body[i])))
-                            anv = np.vstack((anv, self._dict.get_sword(body[i + 1])))
-                        else:
-                            pass
-                    self._bi_gram_vec.append([inv, anv])
+        conn = sqlite3.connect(in_path)
+        cur = conn.cursor()
+
+        cur.execute("SELECT data FROM corpus")
+        sql_results = cur.fetchall()
+        print("Data read size= %d (SQL data size=%d)" % (data_size, len(sql_results)))
+        data_idx_list = random.sample(list(range(0, len(sql_results))), data_size)
+
+        for idx in tqdm(data_idx_list):
+            data = json.loads(sql_results[idx][0])
+            for i, body in enumerate(data["words"]):
+                if i == 0:
+                    inv = self._dict.get_sword(self._dict.wid_bos)
+                    anv = self._dict.get_sword(data["words"][0])
+                elif i + 1 < len(data["words"]):
+                    inv = np.vstack((inv, self._dict.get_sword(data["words"][i])))
+                    anv = np.vstack((anv, self._dict.get_sword(data["words"][i + 1])))
+                else:
+                    pass
+            self._bi_gram_vec.append([inv, anv])
+
+        cur.close()
+        conn.close()
 
     def __len__(self):
         return len(self._bi_gram_vec)
@@ -42,8 +52,8 @@ class Trainer:
     def __init__(self, dataset_path, db_path, device="cuda"):
         self._device = device
         self._dict = DictionaryTrainer(db_path)
-        self._trn_data = AnyaDatasets(dataset_path + "/train/", self._dict)
-        self._tst_data = AnyaDatasets(dataset_path + "/test/", self._dict)
+        self._trn_data = AnyaDatasets(dataset_path, self._dict, 200000)
+        self._tst_data = AnyaDatasets(dataset_path, self._dict, 2000)
         self._criterion = nn.MSELoss(reduction='sum')
 
     def __call__(self, out_model_path, epoch):
@@ -118,13 +128,13 @@ class Trainer:
 
 def main():
     arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument('-i', '--in_path', help='input training directory path', default="./out/")
+    arg_parser.add_argument('-i', '--in_db_path', help='input training corpus path', default="./anya-corpus.db")
     arg_parser.add_argument('-d', '--db_path', help='dictionary database path', default="./anya-dic.db")
     arg_parser.add_argument('-o', '--out_path', help='output model file path', default="anya.mdl")
-    arg_parser.add_argument('-e', '--epoch_num', help='epoch num', default=30)
+    arg_parser.add_argument('-e', '--epoch_num', help='epoch num', default=10)
     args = arg_parser.parse_args()
 
-    trainer = Trainer(args.in_path, args.db_path)
+    trainer = Trainer(args.in_db_path, args.db_path)
     trainer(args.out_path, args.epoch_num)
 
 
