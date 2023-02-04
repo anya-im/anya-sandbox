@@ -13,39 +13,39 @@ from anyasand.dictionary import DictionaryTrainer
 
 
 class AnyaDatasets(Dataset):
-    def __init__(self, in_path, dictionary, data_size=1000):
+    def __init__(self, in_path, dictionary, max_data_size=1000):
         self._dict = dictionary
-        self._bi_gram_vec = []
+        datasize = max_data_size
 
         conn = sqlite3.connect(in_path)
         cur = conn.cursor()
 
         cur.execute("SELECT data FROM corpus")
-        sql_results = cur.fetchall()
-        print("Data read size= %d (SQL data size=%d)" % (data_size, len(sql_results)))
-        data_idx_list = random.sample(list(range(0, len(sql_results))), data_size)
+        self._sql_results = cur.fetchall()
+        if len(self._sql_results) < datasize:
+            datasize = len(self._sql_results)
 
-        for idx in tqdm(data_idx_list):
-            data = json.loads(sql_results[idx][0])
-            for i, body in enumerate(data["words"]):
-                if i == 0:
-                    inv = self._dict.get_sword(self._dict.wid_bos)
-                    anv = self._dict.get_sword(data["words"][0])
-                elif i + 1 < len(data["words"]):
-                    inv = np.vstack((inv, self._dict.get_sword(data["words"][i])))
-                    anv = np.vstack((anv, self._dict.get_sword(data["words"][i + 1])))
-                else:
-                    pass
-            self._bi_gram_vec.append([inv, anv])
+        print("Data read size= %d (SQL data size=%d)" % (datasize, len(self._sql_results)))
+        self._data_idx_list = random.sample(list(range(0, len(self._sql_results))), datasize)
 
         cur.close()
         conn.close()
 
     def __len__(self):
-        return len(self._bi_gram_vec)
+        return len(self._data_idx_list)
 
     def __getitem__(self, idx):
-        return self._bi_gram_vec[idx][0], self._bi_gram_vec[idx][1]
+        data = json.loads(self._sql_results[self._data_idx_list[idx]][0])
+        for i, body in enumerate(data["words"]):
+            if i == 0:
+                inv = self._dict.get_sword(self._dict.wid_bos)
+                anv = self._dict.get_sword(data["words"][0])
+            elif i + 1 < len(data["words"]):
+                inv = np.vstack((inv, self._dict.get_sword(data["words"][i])))
+                anv = np.vstack((anv, self._dict.get_sword(data["words"][i + 1])))
+            else:
+                pass
+        return inv, anv
 
 
 class Trainer:
