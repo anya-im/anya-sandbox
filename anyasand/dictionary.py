@@ -17,10 +17,8 @@ class Dictionary(metaclass=ABCMeta):
         self._vec_size = vec_size
         self._conn = sqlite3.connect(db_path)
         self._cur = self._conn.cursor()
+        self._db_path = db_path
         self._pos_len = 0
-
-        if vec_path is not None:
-            self._words_vec = self._read_vec(vec_path)
 
         if not initialize:
             self._cur.execute('SELECT count(*) FROM positions;')
@@ -171,6 +169,12 @@ class DictionaryTrainer(Dictionary):
                                self._words[str(wid_s)]["vec"],
                                self._vec_eye(wid_s)])
 
+    def get_random_word(self, wid):
+        return np.concatenate([np.random.rand(self._vec_size).astype(np.float32), self._vec_eye(wid)])
+
+    def set_new_word_vec(self, wid, vec):
+        self._words[str(wid)]["vec"] = vec[:self._vec_size]
+
     def wid_insert(self, name, read, grp_name, sub_name):
         pos_id = self._pid_from_name(grp_name, sub_name)
         self._cur.execute('SELECT id FROM words WHERE name = ? AND read = ? AND pos = ?;', (name, read, pos_id))
@@ -187,6 +191,21 @@ class DictionaryTrainer(Dictionary):
             ret_id = self._cur.fetchone()[0]
 
         return ret_id
+
+    def commit_vec(self):
+        conn = sqlite3.connect(self._db_path)
+        cur = conn.cursor()
+        update_cnt = 0
+
+        for key, val in self._words.items():
+            cur.execute("UPDATE words SET vec = ? WHERE id = ?;", (int(key), struct.pack('=8f', *val["vec"])))
+            update_cnt += 1
+
+        cur.execute('commit;')
+        cur.close()
+        conn.close()
+
+        logging.info("OK. update_cnt = %d" % update_cnt)
 
 
 class DictionaryConverter(Dictionary):
