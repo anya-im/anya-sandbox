@@ -2,6 +2,7 @@ import argparse
 import sqlite3
 import json
 import random
+import logging
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -11,49 +12,70 @@ from torch.utils.data import Dataset
 from anyasand.model import AnyaAE
 from anyasand.dictionary import DictionaryTrainer
 
+formatter = '%(asctime)s [%(name)s] %(levelname)s :  %(message)s'
+logging.basicConfig(level=logging.INFO, format=formatter)
+logger = logging.getLogger("anyasand-trainer")
+
 
 class AnyaDatasets(Dataset):
-    def __init__(self, in_path, dictionary, data_size=1000):
+    def __init__(self, in_path, dictionary, training_rate=0.2, max_data_size=1000):
         self._dict = dictionary
-        self._bi_gram_vec = []
+        self._training_rate = training_rate
+        datasize = max_data_size
 
         conn = sqlite3.connect(in_path)
         cur = conn.cursor()
 
         cur.execute("SELECT data FROM corpus")
-        sql_results = cur.fetchall()
-        print("Data read size= %d (SQL data size=%d)" % (data_size, len(sql_results)))
-        data_idx_list = random.sample(list(range(0, len(sql_results))), data_size)
+        self._sql_results = cur.fetchall()
+        if len(self._sql_results) < datasize:
+            datasize = len(self._sql_results)
 
-        for idx in tqdm(data_idx_list):
-            data = json.loads(sql_results[idx][0])
-            for i, body in enumerate(data["words"]):
-                if i == 0:
-                    inv = self._dict.get_sword(self._dict.wid_bos)
-                    anv = self._dict.get_sword(data["words"][0])
-                elif i + 1 < len(data["words"]):
-                    inv = np.vstack((inv, self._dict.get_sword(data["words"][i])))
-                    anv = np.vstack((anv, self._dict.get_sword(data["words"][i + 1])))
-                else:
-                    pass
-            self._bi_gram_vec.append([inv, anv])
+        logging.info("Data read size= %d (SQL size=%d) rate=%.2f" % (datasize, len(self._sql_results), training_rate))
+        self._data_idx_list = random.sample(list(range(len(self._sql_results))), datasize)
 
         cur.close()
         conn.close()
 
     def __len__(self):
-        return len(self._bi_gram_vec)
+        return len(self._data_idx_list)
 
     def __getitem__(self, idx):
-        return self._bi_gram_vec[idx][0], self._bi_gram_vec[idx][1]
+        data = json.loads(self._sql_results[self._data_idx_list[idx]][0])
+        data_len = len(data)
+        teachers = random.sample(list(range(data_len)), int(data_len * (1. - self._training_rate)))
+        for i, word in enumerate(data["words"]):
+            if i in teachers:
+                if i == 0:
+                    inv = self._dict.get_sword(self._dict.wid_bos)
+                    anv = self._dict.get_sword(data["words"][0])
+                else:
+                    inv = np.vstack((inv, self._dict.get_sword(data["words"][i - 1])))
+                    anv = np.vstack((anv, self._dict.get_sword(data["words"][i])))
+            else:
+                if i == 0:
+                    inv = self._dict.get_random_word(self._dict.wid_bos)
+                    anv = self._dict.get_sword(data["words"][0])
+                else:
+                    inv = np.vstack((inv, self._dict.get_random_word(data["words"][i - 1])))
+                    anv = np.vstack((anv, self._dict.get_sword(data["words"][i])))
+
+        return (inv, anv), idx
+
+    def update_vec(self, idx, vec):
+        data = json.loads(self._sql_results[self._data_idx_list[idx]][0])
+        vec_n = np.squeeze(vec.to('cpu').detach().numpy().copy())
+        if vec_n.ndim > 1:
+            for i, word in enumerate(vec_n):
+                self._dict.set_new_word_vec(data["words"][i], word)
 
 
 class Trainer:
     def __init__(self, dataset_path, db_path, device="cuda"):
         self._device = device
         self._dict = DictionaryTrainer(db_path)
-        self._trn_data = AnyaDatasets(dataset_path, self._dict, 200000)
-        self._tst_data = AnyaDatasets(dataset_path, self._dict, 2000)
+        self._trn_data = AnyaDatasets(dataset_path, self._dict, 0.2, 200000)
+        self._tst_data = AnyaDatasets(dataset_path, self._dict, 0., 2000)
         self._criterion = nn.MSELoss(reduction='sum')
 
     def __call__(self, out_model_path, epoch):
@@ -68,11 +90,12 @@ class Trainer:
             train_data_size = 0
 
             train_loss = 0
-            for crt_t, next_t in tqdm(train_loader):
+            for (crt_t, next_t), idx in tqdm(train_loader):
                 x = crt_t.to(self._device)
                 next_t = next_t.to(self._device)
                 y = model(x)
                 loss = self._criterion(y, next_t)
+                self._trn_data.update_vec(idx, y)
 
                 # Update model
                 optimizer.zero_grad()
@@ -87,7 +110,7 @@ class Trainer:
             test_cnt = 0
             test_crr = 0
             with torch.no_grad():
-                for crt_t, next_t in tqdm(test_loader):
+                for (crt_t, next_t), _ in tqdm(test_loader):
                     x = crt_t.to(self._device)
                     next_t = next_t.to(self._device)
                     y = model(x)
@@ -102,14 +125,14 @@ class Trainer:
                     test_cnt += cnt
                     test_crr += crr
 
-                print("loss [%03d]: (train)%.8f  (test)%.8f, %.1f%%" %
-                      ((i+1),
-                       train_loss / train_data_size,
-                       test_loss / test_data_size,
-                       test_crr / test_cnt * 100,
-                       ))
+                logging.info("loss [%03d]: (train)%.8f  (test)%.8f, %.1f%%" %
+                             ((i+1),
+                              train_loss / train_data_size,
+                              test_loss / test_data_size,
+                              test_crr / test_cnt * 100))
 
         # save
+        self._dict.commit_vec()
         self._dict.close()
         torch.save(model.to('cpu').state_dict(), out_model_path)
 
