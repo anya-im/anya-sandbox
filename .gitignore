@@ -141,5 +141,5 @@ corpus/*.txt
 out/
 anya-corpus-wakati.txt
 anya-corpus.db
-
-
+anya-fasttext.bin
+anya-fasttext.vec

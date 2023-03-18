@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class AnyaAE(nn.Module):
-    def __init__(self, in_dim, hidden_dim=256, z_dim=32, hid_num=1):
+    def __init__(self, in_dim, hidden_dim=512, z_dim=32, hid_num=1):
         super().__init__()
         self._hid_num = hid_num
 

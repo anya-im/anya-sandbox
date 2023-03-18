@@ -18,9 +18,8 @@ logger = logging.getLogger("anyasand-trainer")
 
 
 class AnyaDatasets(Dataset):
-    def __init__(self, in_path, dictionary, training_rate=0.2, max_data_size=1000):
+    def __init__(self, in_path, dictionary, max_data_size=1000):
         self._dict = dictionary
-        self._training_rate = training_rate
         datasize = max_data_size
 
         conn = sqlite3.connect(in_path)
@@ -31,7 +30,7 @@ class AnyaDatasets(Dataset):
         if len(self._sql_results) < datasize:
             datasize = len(self._sql_results)
 
-        logging.info("Data read size= %d (SQL size=%d) rate=%.2f" % (datasize, len(self._sql_results), training_rate))
+        logging.info("Data read size= %d (SQL size=%d)" % (datasize, len(self._sql_results)))
         self._data_idx_list = random.sample(list(range(len(self._sql_results))), datasize)
 
         cur.close()
@@ -42,40 +41,23 @@ class AnyaDatasets(Dataset):
 
     def __getitem__(self, idx):
         data = json.loads(self._sql_results[self._data_idx_list[idx]][0])
-        data_len = len(data)
-        teachers = random.sample(list(range(data_len)), int(data_len * (1. - self._training_rate)))
         for i, word in enumerate(data["words"]):
-            if i in teachers:
-                if i == 0:
-                    inv = self._dict.get_sword(self._dict.wid_bos)
-                    anv = self._dict.get_sword(data["words"][0])
-                else:
-                    inv = np.vstack((inv, self._dict.get_sword(data["words"][i - 1])))
-                    anv = np.vstack((anv, self._dict.get_sword(data["words"][i])))
+            if i == 0:
+                inv = self._dict.get_sword(self._dict.wid_bos)
+                anv = self._dict.get_sword(data["words"][0])
             else:
-                if i == 0:
-                    inv = self._dict.get_random_word(self._dict.wid_bos)
-                    anv = self._dict.get_sword(data["words"][0])
-                else:
-                    inv = np.vstack((inv, self._dict.get_random_word(data["words"][i - 1])))
-                    anv = np.vstack((anv, self._dict.get_sword(data["words"][i])))
+                inv = np.vstack((inv, self._dict.get_sword(data["words"][i - 1])))
+                anv = np.vstack((anv, self._dict.get_sword(data["words"][i])))
 
         return (inv, anv), idx
-
-    def update_vec(self, idx, vec):
-        data = json.loads(self._sql_results[self._data_idx_list[idx]][0])
-        vec_n = np.squeeze(vec.to('cpu').detach().numpy().copy())
-        if vec_n.ndim > 1:
-            for i, word in enumerate(vec_n):
-                self._dict.set_new_word_vec(data["words"][i], word)
 
 
 class Trainer:
     def __init__(self, dataset_path, db_path, device="cuda"):
         self._device = device
         self._dict = DictionaryTrainer(db_path)
-        self._trn_data = AnyaDatasets(dataset_path, self._dict, 0.2, 200000)
-        self._tst_data = AnyaDatasets(dataset_path, self._dict, 0., 2000)
+        self._trn_data = AnyaDatasets(dataset_path, self._dict, 50000)
+        self._tst_data = AnyaDatasets(dataset_path, self._dict, 2000)
         self._criterion = nn.MSELoss(reduction='sum')
 
     def __call__(self, out_model_path, epoch):
@@ -83,7 +65,7 @@ class Trainer:
         test_loader = torch.utils.data.DataLoader(self._tst_data, batch_size=1, shuffle=True, pin_memory=True)
 
         model = AnyaAE(self._dict.input_vec_size).to(self._device)
-        optimizer = optim.Adam(model.parameters(), lr=0.0001)
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
 
         for i in range(epoch):
             model.train()
@@ -95,7 +77,6 @@ class Trainer:
                 next_t = next_t.to(self._device)
                 y = model(x)
                 loss = self._criterion(y, next_t)
-                self._trn_data.update_vec(idx, y)
 
                 # Update model
                 optimizer.zero_grad()
@@ -132,7 +113,6 @@ class Trainer:
                               test_crr / test_cnt * 100))
 
         # save
-        self._dict.commit_vec()
         self._dict.close()
         torch.save(model.to('cpu').state_dict(), out_model_path)
 
