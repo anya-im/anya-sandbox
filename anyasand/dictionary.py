@@ -55,7 +55,7 @@ class Dictionary(metaclass=ABCMeta):
         trie_key = []
         trie_val = []
 
-        self._cur.execute('SELECT id, name, read, pos, cost, vec FROM words;')
+        self._cur.execute('SELECT words.id, words.name, words.read, words.pos, cost.val, words.vec FROM words INNER JOIN cost ON words.id = cost.id;')
         for data in self._cur.fetchall():
             wid = str(data[0])
             words[wid] = {
@@ -220,6 +220,9 @@ class DictionaryConverter(Dictionary):
         return np.concatenate([self._words[str(wid)]["vec"], self._pid_eye[(self._words[str(wid)]["pos"] - 1)]])
         #return np.concatenate([self._words[str(wid)]["vec"], self._words[str(wid)]["cost"], self._pid_eye[(self._words[str(wid)]["pos"] - 1)]])
 
+    def cost(self, wid):
+        return self._words[str(wid.decode())]["cost"]
+
     def get_dwords(self, wid_f, wid_s):
         return np.concatenate([self._words[str(wid_f)]["vec"],
                                self._vec_eye(wid_f),
@@ -272,7 +275,12 @@ class DicBuilder:
             name TEXT, 
             read TEXT, 
             pos INTEGER,
-            cost REAL,
+            vec BLOB);
+            """)
+
+        cur.execute("""
+            CREATE TABLE vector(
+            id INTEGER, 
             vec BLOB);
             """)
 
@@ -285,11 +293,10 @@ class DicBuilder:
                         pos_name = row[5] + "." + row[6] + "." + row[7] + "." + row[8]
                         cur.execute("SELECT id FROM positions WHERE name = ?", (pos_name,))
                         pos_id = cur.fetchone()[0]
-                        cost = float(row[3]) / 10000
                         vec_np = np.zeros(self._word_vec_size, dtype=float)
                         vec = struct.pack('=%df' % vec_np.size, *vec_np)
-                        cur.execute("INSERT INTO words(name, read, pos, cost, vec) values(?, ?, ?, ?, ?);",
-                                    (row[0], jaconv.kata2hira(row[11]), pos_id, cost, vec))
+                        cur.execute("INSERT INTO words(name, read, pos, vec) values(?, ?, ?, ?);",
+                                    (row[0], jaconv.kata2hira(row[11]), pos_id, vec))
                 except UnicodeDecodeError:
                     pass
 
@@ -303,7 +310,8 @@ class DicBuilder:
         cur.execute("INSERT INTO words(name, read, pos, cost, vec) values(?, ?, ?, ?, ?);",
                     ("_BOS", "_BOS", pos_id, 0., vec))
 
-        cur.execute('CREATE INDEX words_idx ON words(name, read);')
+        cur.execute('CREATE INDEX words_idx ON words(id, name, read);')
+        cur.execute('CREATE INDEX vec_idx ON vector(id);')
         cur.execute('commit;')
         cur.close()
         conn.close()

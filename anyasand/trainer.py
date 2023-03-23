@@ -56,16 +56,16 @@ class Trainer:
     def __init__(self, dataset_path, db_path, device="cuda"):
         self._device = device
         self._dict = DictionaryTrainer(db_path)
-        self._trn_data = AnyaDatasets(dataset_path, self._dict, 50000)
+        self._trn_data = AnyaDatasets(dataset_path, self._dict, 100000)
         self._tst_data = AnyaDatasets(dataset_path, self._dict, 2000)
         self._criterion = nn.MSELoss(reduction='sum')
 
     def __call__(self, out_model_path, epoch):
-        train_loader = torch.utils.data.DataLoader(self._trn_data, batch_size=1, shuffle=True, pin_memory=True)
-        test_loader = torch.utils.data.DataLoader(self._tst_data, batch_size=1, shuffle=True, pin_memory=True)
+        train_loader = torch.utils.data.DataLoader(self._trn_data, shuffle=True, pin_memory=True)
+        test_loader = torch.utils.data.DataLoader(self._tst_data, shuffle=True, pin_memory=True)
 
         model = AnyaAE(self._dict.input_vec_size).to(self._device)
-        optimizer = optim.Adam(model.parameters(), lr=0.001)
+        optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
         for i in range(epoch):
             model.train()
