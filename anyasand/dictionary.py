@@ -7,6 +7,7 @@ import struct
 import yaml
 import jaconv
 import marisa_trie
+import fasttext
 import numpy as np
 from abc import ABCMeta
 
@@ -39,6 +40,7 @@ class Dictionary(metaclass=ABCMeta):
 
     @property
     def single_vec_size(self):
+        #return self.word_vec_size + self.pos_len + 1
         return self.word_vec_size + self.pos_len
 
     @property
@@ -53,14 +55,15 @@ class Dictionary(metaclass=ABCMeta):
         trie_key = []
         trie_val = []
 
-        self._cur.execute('SELECT id, name, read, pos, vec FROM words;')
+        self._cur.execute('SELECT words.id, words.name, words.read, words.pos, cost.val, words.vec FROM words INNER JOIN cost ON words.id = cost.id;')
         for data in self._cur.fetchall():
             wid = str(data[0])
             words[wid] = {
                 "name": data[1],
                 "read": data[2],
                 "pos": data[3],
-                "vec": np.array(struct.unpack('=%df' % self._vec_size, data[4]), dtype="float32")
+                "cost": np.array([data[4]], dtype="float32"),
+                "vec": np.array(struct.unpack('=%df' % self._vec_size, data[5]), dtype="float32")
             }
             trie_key.append(data[2])
             trie_val.append(wid.encode())
@@ -162,6 +165,7 @@ class DictionaryTrainer(Dictionary):
 
     def get_sword(self, wid):
         return np.concatenate([self._words[str(wid)]["vec"], self._vec_eye(wid)])
+        #return np.concatenate([self._words[str(wid)]["vec"], self._words[str(wid)]["cost"], self._vec_eye(wid)])
 
     def get_dwords(self, wid_f, wid_s):
         return np.concatenate([self._words[str(wid_f)]["vec"],
@@ -214,6 +218,10 @@ class DictionaryConverter(Dictionary):
 
     def get(self, wid):
         return np.concatenate([self._words[str(wid)]["vec"], self._pid_eye[(self._words[str(wid)]["pos"] - 1)]])
+        #return np.concatenate([self._words[str(wid)]["vec"], self._words[str(wid)]["cost"], self._pid_eye[(self._words[str(wid)]["pos"] - 1)]])
+
+    def cost(self, wid):
+        return self._words[str(wid.decode())]["cost"]
 
     def get_dwords(self, wid_f, wid_s):
         return np.concatenate([self._words[str(wid_f)]["vec"],
@@ -245,7 +253,7 @@ class DicBuilder:
         self._sudachidic_path = sudachidic_path
         self._word_vec_size = word_vec_size
 
-    def build(self):
+    def __call__(self):
         # db initialize
         if os.path.isfile(self._db_path):
             os.remove(self._db_path)
@@ -257,12 +265,23 @@ class DicBuilder:
         conn = sqlite3.connect(self._db_path)
         cur = conn.cursor()
 
-        cur.execute("CREATE TABLE positions(id INTEGER PRIMARY KEY AUTOINCREMENT, name STRING);")
+        cur.execute("CREATE TABLE positions(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT);")
         for pos_name in pos_ids:
             cur.execute('INSERT INTO positions(name) values(?);', (pos_name,))
 
         cur.execute("""
-            CREATE TABLE words(id INTEGER PRIMARY KEY AUTOINCREMENT, name STRING, read STRING, pos INTEGER, vec BLOB);
+            CREATE TABLE words(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, 
+            name TEXT, 
+            read TEXT, 
+            pos INTEGER,
+            vec BLOB);
+            """)
+
+        cur.execute("""
+            CREATE TABLE vector(
+            id INTEGER, 
+            vec BLOB);
             """)
 
         for csv_file in self._dic_csv:
@@ -274,37 +293,43 @@ class DicBuilder:
                         pos_name = row[5] + "." + row[6] + "." + row[7] + "." + row[8]
                         cur.execute("SELECT id FROM positions WHERE name = ?", (pos_name,))
                         pos_id = cur.fetchone()[0]
-                        vec_np = np.random.rand(self._word_vec_size)
+                        vec_np = np.zeros(self._word_vec_size, dtype=float)
                         vec = struct.pack('=%df' % vec_np.size, *vec_np)
                         cur.execute("INSERT INTO words(name, read, pos, vec) values(?, ?, ?, ?);",
                                     (row[0], jaconv.kata2hira(row[11]), pos_id, vec))
                 except UnicodeDecodeError:
                     pass
 
-        cur.execute('CREATE INDEX words_idx ON words(name, read);')
+        # add BOS
+        print(" add BOS")
+        cur.execute("SELECT id FROM positions WHERE name = ?", ("BOS.*.*.*",))
+        pos_id = cur.fetchone()[0]
+        vec_np = np.random.rand(self._word_vec_size)
+        #vec_np = np.zeros(self._word_vec_size, dtype=float)
+        vec = struct.pack('=%df' % vec_np.size, *vec_np)
+        cur.execute("INSERT INTO words(name, read, pos, cost, vec) values(?, ?, ?, ?, ?);",
+                    ("_BOS", "_BOS", pos_id, 0., vec))
+
+        cur.execute('CREATE INDEX words_idx ON words(id, name, read);')
+        cur.execute('CREATE INDEX vec_idx ON vector(id);')
         cur.execute('commit;')
         cur.close()
         conn.close()
 
-    def insert_vec_from_fasttext(self, fasttext_model="./anya-fasttext.vec"):
+    def insert_vec_from_fasttext(self, fasttext_model="./anya-fasttext.bin"):
         conn = sqlite3.connect(self._db_path)
         cur = conn.cursor()
+        ft = fasttext.load_model(fasttext_model)
         update_cnt = 0
-        csv.field_size_limit(1000000000)
 
-        with open(fasttext_model) as f:
-            reader = csv.reader(f, delimiter=" ")
-            for i, row in enumerate(reader):
-                if i > 0:
-                    vec = np.array([float(row[1]), float(row[2]), float(row[3]), float(row[4]),
-                                    float(row[5]), float(row[6]), float(row[7]), float(row[8])], dtype=np.float16)
-                    vec_pack = struct.pack('=8f', *vec)
-
-                    cur.execute("SELECT id FROM words WHERE name = ?", (row[0],))
-                    for data in cur.fetchall():
-                        wid = data[0]
-                        cur.execute("UPDATE words SET vec = ? WHERE id = ?;", (vec_pack, wid,))
-                        update_cnt += 1
+        cur.execute("SELECT id, name FROM words")
+        for data in cur.fetchall():
+            wid = data[0]
+            name = data[1]
+            vec = ft.get_word_vector(name)
+            vec_pack = struct.pack('=8f', *vec)
+            cur.execute("UPDATE words SET vec = ? WHERE id = ?;", (vec_pack, wid,))
+            update_cnt += 1
 
         cur.execute('commit;')
         cur.close()
@@ -312,27 +337,13 @@ class DicBuilder:
 
         print("OK. update_cnt = %d" % update_cnt)
 
-    def insert_bos(self):
-        conn = sqlite3.connect(self._db_path)
-        cur = conn.cursor()
-
-        cur.execute("SELECT id FROM positions WHERE name = ?", ("BOS.*.*.*",))
-        pos_id = cur.fetchone()[0]
-        vec_np = np.random.rand(self._word_vec_size)
-        vec = struct.pack('=%df' % vec_np.size, *vec_np)
-        cur.execute("INSERT INTO words(name, read, pos, vec) values(?, ?, ?, ?);", ("_BOS", "_BOS", pos_id, vec))
-
-        cur.execute('commit;')
-        cur.close()
-        conn.close()
-
 
 def main():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument('-d', '--db_path', help='dictionary DB path', default="./anya-dic.db")
     args = arg_parser.parse_args()
     builder = DicBuilder(args.db_path)
-    builder.insert_bos()
+    builder.insert_vec_from_fasttext()
 
 
 if __name__ == "__main__":

@@ -75,11 +75,8 @@ class Corpus:
 
     def parse(self, text, wakati_file_p):
         ret = None
-
         words = []
-        #surface = ""
-        #pos_ary = None
-        token = self._tokenizer.tokenize(text, tokenizer.Tokenizer.SplitMode.A)
+        token = self._tokenizer.tokenize(text, tokenizer.Tokenizer.SplitMode.C)
 
         try:
             for m in token:

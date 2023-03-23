@@ -39,7 +39,7 @@ class Converter:
                                 for next_word in self._dict.gets(ym):
                                     vec = torch.from_numpy(self._dict.get(next_word.decode()))
                                     score = self._criterion(predict_word_vec, vec)
-                                    score = pre_score + score.item()
+                                    score = pre_score + (score.item() * self._dict.cost(next_word))
 
                                     copied = words.copy()
                                     copied.append(next_word.decode())
@@ -57,7 +57,7 @@ class Converter:
                             for next_word in self._dict.gets(ym):
                                 vec = torch.from_numpy(self._dict.get(next_word.decode()))
                                 score = self._criterion(predict_word_vec, vec)
-                                score = score.item() + fixed[pre_idx]["cost"]
+                                score = (score.item() * self._dict.cost(next_word)) + fixed[pre_idx]["cost"]
 
                                 copied = words.copy()
                                 copied.append(next_word.decode())
