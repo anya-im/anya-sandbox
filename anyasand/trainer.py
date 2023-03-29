@@ -1,6 +1,7 @@
 import argparse
 import sqlite3
 import json
+import os
 import random
 import logging
 import torch
@@ -18,61 +19,65 @@ logger = logging.getLogger("anyasand-trainer")
 
 
 class AnyaDatasets(Dataset):
-    def __init__(self, in_path, dictionary, max_data_size=1000):
+    def __init__(self, corpus_data, dictionary, max_data_size=1000):
+        self._corpus_data = corpus_data
         self._dict = dictionary
         datasize = max_data_size
+        if len(self._corpus_data) < datasize:
+            datasize = len(self._corpus_data)
 
-        conn = sqlite3.connect(in_path)
-        cur = conn.cursor()
-
-        cur.execute("SELECT data FROM corpus")
-        self._sql_results = cur.fetchall()
-        if len(self._sql_results) < datasize:
-            datasize = len(self._sql_results)
-
-        logging.info("Data read size= %d (SQL size=%d)" % (datasize, len(self._sql_results)))
-        self._data_idx_list = random.sample(list(range(len(self._sql_results))), datasize)
-
-        cur.close()
-        conn.close()
+        logging.info("Data read size= %d (SQL size=%d)" % (datasize, len(self._corpus_data)))
+        self._data_idx_list = random.sample(list(range(len(self._corpus_data))), datasize)
 
     def __len__(self):
         return len(self._data_idx_list)
 
     def __getitem__(self, idx):
-        data = json.loads(self._sql_results[self._data_idx_list[idx]][0])
+        data = json.loads(self._corpus_data[self._data_idx_list[idx]][0])
+        inv = np.zeros((len(data["words"]), self._dict.single_vec_size), dtype=np.float32)
+        anv = np.zeros((len(data["words"]), self._dict.single_vec_size), dtype=np.float32)
         for i, word in enumerate(data["words"]):
             if i == 0:
-                inv = self._dict.get_sword(self._dict.wid_bos)
-                anv = self._dict.get_sword(data["words"][0])
+                inv[0] = self._dict.get_sword(self._dict.wid_bos)
             else:
-                inv = np.vstack((inv, self._dict.get_sword(data["words"][i - 1])))
-                anv = np.vstack((anv, self._dict.get_sword(data["words"][i])))
+                inv[i] = self._dict.get_sword(data["words"][i - 1])
+            anv[i] = self._dict.get_sword(data["words"][i])
 
-        return (inv, anv), idx
+        return inv, anv
 
 
 class Trainer:
-    def __init__(self, dataset_path, db_path, device="cuda"):
+    def __init__(self, dataset_path, db_path, epoch, inner_loop=100000, device="cuda"):
+        self._epoch = epoch
+        self._inner_loop = inner_loop
         self._device = device
         self._dict = DictionaryTrainer(db_path)
-        self._trn_data = AnyaDatasets(dataset_path, self._dict, 100000)
-        self._tst_data = AnyaDatasets(dataset_path, self._dict, 2000)
         self._criterion = nn.MSELoss(reduction='sum')
 
-    def __call__(self, out_model_path, epoch):
-        train_loader = torch.utils.data.DataLoader(self._trn_data, shuffle=True, pin_memory=True)
-        test_loader = torch.utils.data.DataLoader(self._tst_data, shuffle=True, pin_memory=True)
+        conn = sqlite3.connect(dataset_path)
+        cur = conn.cursor()
+        cur.execute("SELECT data FROM corpus")
+        self._corpus_datas = cur.fetchall()
+        cur.close()
+        conn.close()
 
+    def __call__(self, out_model_path, inner_loop=100000):
         model = AnyaAE(self._dict.input_vec_size).to(self._device)
+        if os.path.isfile(out_model_path):
+            model.load_state_dict(torch.load(out_model_path))
+
+        model = model.to(self._device)
         optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
-        for i in range(epoch):
+        for i in range(self._epoch):
+            model = model.to(self._device)
             model.train()
+            trn_data = AnyaDatasets(self._corpus_datas, self._dict, inner_loop)
+            train_loader = torch.utils.data.DataLoader(trn_data, shuffle=True, pin_memory=True)
             train_data_size = 0
 
             train_loss = 0
-            for (crt_t, next_t), idx in tqdm(train_loader):
+            for crt_t, next_t in tqdm(train_loader):
                 x = crt_t.to(self._device)
                 next_t = next_t.to(self._device)
                 y = model(x)
@@ -86,12 +91,14 @@ class Trainer:
                 train_data_size += x.shape[1]
 
             model.eval()
+            tst_data = AnyaDatasets(self._corpus_datas, self._dict, 2000)
+            test_loader = torch.utils.data.DataLoader(tst_data, shuffle=True, pin_memory=True)
             test_loss = 0.
             test_data_size = 0
             test_cnt = 0
             test_crr = 0
             with torch.no_grad():
-                for (crt_t, next_t), _ in tqdm(test_loader):
+                for crt_t, next_t in tqdm(test_loader):
                     x = crt_t.to(self._device)
                     next_t = next_t.to(self._device)
                     y = model(x)
@@ -112,9 +119,10 @@ class Trainer:
                               test_loss / test_data_size,
                               test_crr / test_cnt * 100))
 
+            torch.save(model.to('cpu').state_dict(), out_model_path)
+
         # save
         self._dict.close()
-        torch.save(model.to('cpu').state_dict(), out_model_path)
 
     def _compute_acc(self, y, y_in):
         cnt = 0
@@ -137,8 +145,8 @@ def main():
     arg_parser.add_argument('-e', '--epoch_num', help='epoch num', default=10)
     args = arg_parser.parse_args()
 
-    trainer = Trainer(args.in_db_path, args.db_path)
-    trainer(args.out_path, args.epoch_num)
+    trainer = Trainer(args.in_db_path, args.db_path, args.epoch_num)
+    trainer(args.out_path)
 
 
 if __name__ == "__main__":
