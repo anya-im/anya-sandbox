@@ -12,3 +12,4 @@ romkan
 fasttext
 sudachipy
 sudachidict_full
+grpcio
