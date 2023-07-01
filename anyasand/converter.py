@@ -6,6 +6,9 @@ from anyasand.model import AnyaAE
 from anyasand.dictionary import DictionaryConverter as Dictionary
 
 
+import time
+
+
 class Converter:
     def __init__(self, dnn_model, db_path):
         self._dict = Dictionary(db_path)
@@ -16,10 +19,10 @@ class Converter:
     def convert(self, text):
         fixed = []
         word_tree = self._dict.build_word_tree(text)
-        print(word_tree)
+        #print(word_tree)
 
         for crt_idx, ym_ary in enumerate(word_tree):
-            print(crt_idx, " -> ")
+            #print(crt_idx, " -> ")
             min_words = {"words": [], "cost": 0.}
 
             for ym in ym_ary:
@@ -30,8 +33,11 @@ class Converter:
                             for pre_word in self._dict.gets(pre_ym):
                                 words = [pre_word.decode()]
                                 in_vec = self._get_in_vec(words)
-                                pre_word_vec = self._model(in_vec)[0]
-                                predict_word_vec = self._model(in_vec)[1]
+                                a_time = time.time()
+                                calc_score = self._model(in_vec)
+                                pre_word_vec = calc_score[0]
+                                predict_word_vec = calc_score[1]
+                                print("time: %f" % (time.time() - a_time))
                                 vec = torch.from_numpy(self._dict.get(pre_word.decode()))
                                 pre_score = self._criterion(pre_word_vec, vec)
                                 pre_score = pre_score.item()

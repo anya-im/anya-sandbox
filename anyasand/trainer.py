@@ -47,12 +47,12 @@ class AnyaDatasets(Dataset):
 
 
 class Trainer:
-    def __init__(self, dataset_path, db_path, epoch, inner_loop=100000, device="cuda"):
+    def __init__(self, dataset_path, db_path, epoch, device="cuda"):
         self._epoch = epoch
-        self._inner_loop = inner_loop
         self._device = device
         self._dict = DictionaryTrainer(db_path)
-        self._criterion = nn.MSELoss(reduction='sum')
+        self._criterion_vec = nn.MSELoss(reduction='sum')
+        self._criterion_pos = nn.CrossEntropyLoss(reduction='sum')
 
         conn = sqlite3.connect(dataset_path)
         cur = conn.cursor()
@@ -61,10 +61,10 @@ class Trainer:
         cur.close()
         conn.close()
 
-    def __call__(self, out_model_path, inner_loop=100000):
+    def __call__(self, out_model_path, inner_loop=20000):
         model = AnyaAE(self._dict.input_vec_size).to(self._device)
-        if os.path.isfile(out_model_path):
-            model.load_state_dict(torch.load(out_model_path))
+        #if os.path.isfile(out_model_path):
+        #    model.load_state_dict(torch.load(out_model_path))
 
         model = model.to(self._device)
         optimizer = optim.Adam(model.parameters(), lr=0.0001)
@@ -81,7 +81,7 @@ class Trainer:
                 x = crt_t.to(self._device)
                 next_t = next_t.to(self._device)
                 y = model(x)
-                loss = self._criterion(y, next_t)
+                loss = self._compute_loss(y, next_t)
 
                 # Update model
                 optimizer.zero_grad()
@@ -104,7 +104,7 @@ class Trainer:
                     y = model(x)
 
                     # Compute loss
-                    loss = self._criterion(y, next_t)
+                    loss = self._compute_loss(y, next_t)
                     test_loss += loss.item()
                     test_data_size += x.shape[1]
 
@@ -123,6 +123,14 @@ class Trainer:
 
         # save
         self._dict.close()
+
+        dummy_input = torch.randn((1, self._dict.single_vec_size))
+        torch.onnx.export(model, dummy_input, "anya.onnx", verbose=True)
+
+    def _compute_loss(self, y, y_in):
+        loss_vec = self._criterion_vec(y[:8], y_in[:8])
+        loss_pos = self._criterion_pos(y[-self._dict.pos_len:], y_in[-self._dict.pos_len:])
+        return loss_vec + loss_pos
 
     def _compute_acc(self, y, y_in):
         cnt = 0
