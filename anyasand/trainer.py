@@ -27,23 +27,27 @@ class AnyaDatasets(Dataset):
             datasize = len(self._corpus_data)
 
         logging.info("Data read size= %d (SQL size=%d)" % (datasize, len(self._corpus_data)))
-        self._data_idx_list = random.sample(list(range(len(self._corpus_data))), datasize)
+        data_idx_list = random.sample(list(range(len(self._corpus_data))), datasize)
+
+        self._inv = []
+        self._anv = []
+        for data in data_idx_list:
+            dat = json.loads(self._corpus_data[data][0])
+            for i, word in enumerate(dat["words"]):
+                if i == 0:
+                    continue
+                elif i == 1:
+                    self._inv.append(self._dict.get_dwords(self._dict.wid_bos, dat["words"][i-1]))
+                else:
+                    self._inv.append(self._dict.get_dwords(dat["words"][i-2], dat["words"][i-1]))
+
+                self._anv.append(self._dict.get_dwords(dat["words"][i-1], dat["words"][i]))
 
     def __len__(self):
-        return len(self._data_idx_list)
+        return len(self._inv)
 
     def __getitem__(self, idx):
-        data = json.loads(self._corpus_data[self._data_idx_list[idx]][0])
-        inv = np.zeros((len(data["words"]), self._dict.single_vec_size), dtype=np.float32)
-        anv = np.zeros((len(data["words"]), self._dict.single_vec_size), dtype=np.float32)
-        for i, word in enumerate(data["words"]):
-            if i == 0:
-                inv[0] = self._dict.get_sword(self._dict.wid_bos)
-            else:
-                inv[i] = self._dict.get_sword(data["words"][i - 1])
-            anv[i] = self._dict.get_sword(data["words"][i])
-
-        return inv, anv
+        return self._inv[idx], self._anv[idx]
 
 
 class Trainer:
@@ -61,19 +65,19 @@ class Trainer:
         cur.close()
         conn.close()
 
-    def __call__(self, out_model_path, inner_loop=20000):
+    def __call__(self, out_model_path, inner_loop=100000):
         model = AnyaAE(self._dict.input_vec_size).to(self._device)
         #if os.path.isfile(out_model_path):
         #    model.load_state_dict(torch.load(out_model_path))
 
         model = model.to(self._device)
-        optimizer = optim.Adam(model.parameters(), lr=0.0001)
+        optimizer = optim.Adam(model.parameters(), lr=0.0005)
 
         for i in range(self._epoch):
             model = model.to(self._device)
             model.train()
             trn_data = AnyaDatasets(self._corpus_datas, self._dict, inner_loop)
-            train_loader = torch.utils.data.DataLoader(trn_data, shuffle=True, pin_memory=True)
+            train_loader = torch.utils.data.DataLoader(trn_data, shuffle=True, pin_memory=True, batch_size=100)
             train_data_size = 0
 
             train_loss = 0
@@ -92,7 +96,7 @@ class Trainer:
 
             model.eval()
             tst_data = AnyaDatasets(self._corpus_datas, self._dict, 2000)
-            test_loader = torch.utils.data.DataLoader(tst_data, shuffle=True, pin_memory=True)
+            test_loader = torch.utils.data.DataLoader(tst_data, shuffle=True, pin_memory=True, batch_size=100)
             test_loss = 0.
             test_data_size = 0
             test_cnt = 0
@@ -124,22 +128,23 @@ class Trainer:
         # save
         self._dict.close()
 
-        dummy_input = torch.randn((1, self._dict.single_vec_size))
+        dummy_input = torch.randn((self._dict.input_vec_size,))
         torch.onnx.export(model, dummy_input, "anya.onnx", verbose=True)
 
     def _compute_loss(self, y, y_in):
-        loss_vec = self._criterion_vec(y[:8], y_in[:8])
-        loss_pos = self._criterion_pos(y[-self._dict.pos_len:], y_in[-self._dict.pos_len:])
-        return loss_vec + loss_pos
+        #loss_vec = self._criterion_vec(y[:8], y_in[:8])
+        #loss_pos = self._criterion_pos(y[-self._dict.pos_len:], y_in[-self._dict.pos_len:])
+        #return loss_vec + loss_pos
+        return self._criterion_vec(y, y_in)
 
     def _compute_acc(self, y, y_in):
         cnt = 0
         correct = 0
-        for i, y_res in enumerate(y[0]):
+        for i, y_res in enumerate(y):
             if y_res.dim() > 0:
                 cnt += 1
                 y_res_pos = torch.argmax(y_res[-self._dict.pos_len:])
-                y_in_pos = torch.argmax(y_in[0][i][-self._dict.pos_len:])
+                y_in_pos = torch.argmax(y_in[i][-self._dict.pos_len:])
                 if y_res_pos.item() == y_in_pos.item():
                     correct += 1
         return cnt, correct

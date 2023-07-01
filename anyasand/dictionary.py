@@ -44,8 +44,13 @@ class Dictionary(metaclass=ABCMeta):
         return self.word_vec_size + self.pos_len
 
     @property
+    def double_vec_size(self):
+        return (self.word_vec_size + self.pos_len) * 2
+
+    @property
     def input_vec_size(self):
-        return self.single_vec_size
+        #return self.single_vec_size
+        return self.double_vec_size
 
     def _vec_eye(self, wid):
         return self._pid_eye[(self._words[str(wid)]["pos"] - 1)]
