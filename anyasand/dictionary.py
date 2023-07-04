@@ -82,6 +82,9 @@ class Dictionary(metaclass=ABCMeta):
     def wid2vec(self, wid):
         return self._words[wid.decode()]["vec"]
 
+    def wid2pos(self, wid):
+        return self._words[wid]["pos"]
+
     @staticmethod
     def _read_vec(vec_path):
         vec_dic = {}

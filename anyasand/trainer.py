@@ -31,23 +31,35 @@ class AnyaDatasets(Dataset):
 
         self._inv = []
         self._anv = []
+        self._train_data = []
         for data in data_idx_list:
             dat = json.loads(self._corpus_data[data][0])
             for i, word in enumerate(dat["words"]):
+                train_data = {}
                 if i == 0:
                     continue
                 elif i == 1:
-                    self._inv.append(self._dict.get_dwords(self._dict.wid_bos, dat["words"][i-1]))
+                    train_data["in_pre_id"] = self._dict.wid_bos
+                    train_data["in_tar_id"] = dat["words"][i-1]
+                    #self._inv.append(self._dict.get_dwords(self._dict.wid_bos, dat["words"][i-1]))
                 else:
-                    self._inv.append(self._dict.get_dwords(dat["words"][i-2], dat["words"][i-1]))
+                    train_data["in_pre_id"] = dat["words"][i-2]
+                    train_data["in_tar_id"] = dat["words"][i-1]
+                    #self._inv.append(self._dict.get_dwords(dat["words"][i-2], dat["words"][i-1]))
 
-                self._anv.append(self._dict.get_dwords(dat["words"][i-1], dat["words"][i]))
+                #self._anv.append(self._dict.get_dwords(dat["words"][i-1], dat["words"][i]))
+                train_data["an_pre_id"] = dat["words"][i - 1]
+                train_data["an_tar_id"] = dat["words"][i]
+
+                self._train_data.append(train_data)
 
     def __len__(self):
-        return len(self._inv)
+        return len(self._train_data)
 
     def __getitem__(self, idx):
-        return self._inv[idx], self._anv[idx]
+        in_vec = self._dict.get_dwords(self._train_data[idx]["in_pre_id"], self._train_data[idx]["in_tar_id"])
+        an_vec = self._dict.get_dwords(self._train_data[idx]["an_pre_id"], self._train_data[idx]["an_tar_id"])
+        return in_vec, an_vec
 
 
 class Trainer:
@@ -71,13 +83,13 @@ class Trainer:
         #    model.load_state_dict(torch.load(out_model_path))
 
         model = model.to(self._device)
-        optimizer = optim.Adam(model.parameters(), lr=0.0005)
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
 
         for i in range(self._epoch):
             model = model.to(self._device)
             model.train()
             trn_data = AnyaDatasets(self._corpus_datas, self._dict, inner_loop)
-            train_loader = torch.utils.data.DataLoader(trn_data, shuffle=True, pin_memory=True, batch_size=100)
+            train_loader = torch.utils.data.DataLoader(trn_data, shuffle=True, pin_memory=True, batch_size=200)
             train_data_size = 0
 
             train_loss = 0
@@ -96,7 +108,7 @@ class Trainer:
 
             model.eval()
             tst_data = AnyaDatasets(self._corpus_datas, self._dict, 2000)
-            test_loader = torch.utils.data.DataLoader(tst_data, shuffle=True, pin_memory=True, batch_size=100)
+            test_loader = torch.utils.data.DataLoader(tst_data, shuffle=True, pin_memory=True, batch_size=200)
             test_loss = 0.
             test_data_size = 0
             test_cnt = 0
@@ -132,10 +144,12 @@ class Trainer:
         torch.onnx.export(model, dummy_input, "anya.onnx", verbose=True)
 
     def _compute_loss(self, y, y_in):
-        #loss_vec = self._criterion_vec(y[:8], y_in[:8])
-        #loss_pos = self._criterion_pos(y[-self._dict.pos_len:], y_in[-self._dict.pos_len:])
-        #return loss_vec + loss_pos
-        return self._criterion_vec(y, y_in)
+        y_res = y[-(self._dict.pos_len+8):]
+        y_in_res = y_in[-(self._dict.pos_len+8):]
+        loss_vec = self._criterion_vec(y_res[:8], y_in_res[:8])
+        loss_pos = self._criterion_pos(y_res[-self._dict.pos_len:], y_in_res[-self._dict.pos_len:])
+        return loss_vec + loss_pos
+        #return self._criterion_vec(y, y_in)
 
     def _compute_acc(self, y, y_in):
         cnt = 0
