@@ -33,6 +33,8 @@ class Dictionary(metaclass=ABCMeta):
             self._words, self._trie = self._build_db()
 
         self._pid_eye = np.eye(self.pos_len, dtype="float32")
+        #self._pid_eye = np.random.random_sample((56, self.pos_len))
+        #self._pid_eye = self._pid_eye.astype("float32")
 
     @property
     def wid_bos(self):
@@ -40,8 +42,8 @@ class Dictionary(metaclass=ABCMeta):
 
     @property
     def single_vec_size(self):
-        #return self.word_vec_size + self.pos_len + 1
         return self.word_vec_size + self.pos_len
+        #return self.word_vec_size + 56
 
     @property
     def double_vec_size(self):
@@ -52,7 +54,14 @@ class Dictionary(metaclass=ABCMeta):
         #return self.single_vec_size
         return self.double_vec_size
 
-    def _vec_eye(self, wid):
+    @property
+    def pid_eye(self):
+        return self._pid_eye
+
+    def pid(self, wid):
+        return self._words[str(wid)]["pos"] - 1
+
+    def vec_eye(self, wid):
         return self._pid_eye[(self._words[str(wid)]["pos"] - 1)]
 
     def _build_db(self):
@@ -169,7 +178,7 @@ class DictionaryTrainer(Dictionary):
         super().__init__(db_path, vec_path)
 
     def get(self, wid):
-        return self._words[str(wid)]["vec"], self._vec_eye(wid)
+        return self._words[str(wid)]["vec"], self.vec_eye(wid)
 
     def get_sword(self, wid):
         return np.concatenate([self._words[str(wid)]["vec"], self._vec_eye(wid)])
@@ -177,12 +186,17 @@ class DictionaryTrainer(Dictionary):
 
     def get_dwords(self, wid_f, wid_s):
         return np.concatenate([self._words[str(wid_f)]["vec"],
-                               self._vec_eye(wid_f),
+                               self.vec_eye(wid_f),
                                self._words[str(wid_s)]["vec"],
-                               self._vec_eye(wid_s)])
+                               self.vec_eye(wid_s)])
 
     def get_random_word(self, wid):
-        return np.concatenate([np.random.rand(self._vec_size).astype(np.float32), self._vec_eye(wid)])
+        return np.concatenate([np.random.rand(self._vec_size).astype(np.float32), self.vec_eye(wid)])
+
+    def update_pos_vec(self, vecs, wid_ary):
+        for i, vec in enumerate(vecs):
+            pos_id = self._words[str(wid_ary[i].item())]["pos"] - 1
+            self._pid_eye[pos_id] = (self._pid_eye[pos_id] + vec.to('cpu').detach().numpy()) / 2
 
     def set_new_word_vec(self, wid, vec):
         self._words[str(wid)]["vec"] = vec[:self._vec_size]
@@ -233,9 +247,9 @@ class DictionaryConverter(Dictionary):
 
     def get_dwords(self, wid_f, wid_s):
         return np.concatenate([self._words[str(wid_f)]["vec"],
-                               self._vec_eye(wid_f),
+                               self.vec_eye(wid_f),
                                self._words[str(wid_s)]["vec"],
-                               self._vec_eye(wid_s)])
+                               self.vec_eye(wid_s)])
 
     def gets(self, ym):
         return self._trie[ym]
