@@ -51,8 +51,8 @@ class Dictionary(metaclass=ABCMeta):
 
     @property
     def input_vec_size(self):
-        #return self.single_vec_size
-        return self.double_vec_size
+        return self.single_vec_size
+        #return self.double_vec_size
 
     @property
     def pid_eye(self):
@@ -181,7 +181,7 @@ class DictionaryTrainer(Dictionary):
         return self._words[str(wid)]["vec"], self.vec_eye(wid)
 
     def get_sword(self, wid):
-        return np.concatenate([self._words[str(wid)]["vec"], self._vec_eye(wid)])
+        return np.concatenate([self._words[str(wid)]["vec"], self.vec_eye(wid)])
         #return np.concatenate([self._words[str(wid)]["vec"], self._words[str(wid)]["cost"], self._vec_eye(wid)])
 
     def get_dwords(self, wid_f, wid_s):
@@ -193,13 +193,12 @@ class DictionaryTrainer(Dictionary):
     def get_random_word(self, wid):
         return np.concatenate([np.random.rand(self._vec_size).astype(np.float32), self.vec_eye(wid)])
 
-    def update_pos_vec(self, vecs, wid_ary):
-        for i, vec in enumerate(vecs):
-            pos_id = self._words[str(wid_ary[i].item())]["pos"] - 1
-            self._pid_eye[pos_id] = (self._pid_eye[pos_id] + vec.to('cpu').detach().numpy()) / 2
-
     def set_new_word_vec(self, wid, vec):
         self._words[str(wid)]["vec"] = vec[:self._vec_size]
+
+    def update_pid_vec(self, wid, vec):
+        new_vec = (self._pid_eye[(self._words[str(wid)]["pos"] - 1)] + vec) / 2
+        self._pid_eye[(self._words[str(wid)]["pos"] - 1)] = new_vec
 
     def wid_insert(self, name, read, grp_name, sub_name):
         pos_id = self._pid_from_name(grp_name, sub_name)
