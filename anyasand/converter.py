@@ -37,7 +37,7 @@ class Converter:
                                 calc_score = self._model(in_vec)
                                 pre_word_vec = calc_score[0]
                                 predict_word_vec = calc_score[1]
-                                print("time: %f" % (time.time() - a_time))
+                                #print("time: %f" % (time.time() - a_time))
                                 vec = torch.from_numpy(self._dict.get(pre_word.decode()))
                                 pre_score = self._criterion(pre_word_vec, vec)
                                 pre_score = pre_score.item()

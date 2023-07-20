@@ -13,3 +13,4 @@ fasttext
 sudachipy
 sudachidict_full
 grpcio
+websockets

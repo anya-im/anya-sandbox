@@ -4,13 +4,13 @@ import argparse
 import uvicorn
 import romkan
 from anyasand.converter import Converter
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 formatter = '%(asctime)s [%(name)s] %(levelname)s :  %(message)s'
-logging.basicConfig(level=logging.INFO, format=formatter)
+logging.basicConfig(level=logging.CRITICAL, format=formatter)
 logger = logging.getLogger("anya-web")
 
 arg_parser = argparse.ArgumentParser()
@@ -37,6 +37,16 @@ async def convert(text: str):
     kana_text = romkan.to_hiragana(text)
     out_text = converter.convert(kana_text)
     return {"convText": out_text}
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    while True:
+        data = await websocket.receive_text()
+        kana_text = romkan.to_hiragana(data)
+        out_text = converter.convert(kana_text)
+        await websocket.send_text(out_text)
 
 
 def main():

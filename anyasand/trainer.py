@@ -61,7 +61,7 @@ class Trainer:
         cur.close()
         conn.close()
 
-    def __call__(self, out_model_path, inner_loop=50000):
+    def __call__(self, out_model_path, inner_loop=100000):
         model = AnyaAE(self._dict.input_vec_size).to(self._device)
         #if os.path.isfile(out_model_path):
         #    model.load_state_dict(torch.load(out_model_path))
@@ -189,7 +189,7 @@ def main():
     arg_parser.add_argument('-i', '--in_db_path', help='input training corpus path', default="./anya-corpus.db")
     arg_parser.add_argument('-d', '--db_path', help='dictionary database path', default="./anya-dic.db")
     arg_parser.add_argument('-o', '--out_path', help='output model file path', default="anya.mdl")
-    arg_parser.add_argument('-e', '--epoch_num', help='epoch num', default=50)
+    arg_parser.add_argument('-e', '--epoch_num', help='epoch num', default=100)
     args = arg_parser.parse_args()
 
     trainer = Trainer(args.in_db_path, args.db_path, args.epoch_num)

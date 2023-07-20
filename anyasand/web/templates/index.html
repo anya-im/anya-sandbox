@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>!!Anya Web!!</title>
-    <link href="{{ url_for('static', path='/style.css?ver=1.0') }}" rel="stylesheet">
+    <link href="{{ url_for('static', path='/style.css?ver=1.13') }}" rel="stylesheet">
     <!--script src="https://cdn.jsdelivr.net/npm/vue@3.2.33/dist/vue.global.prod.js"></script -->
     <script src="https://cdn.jsdelivr.net/npm/vue@2.6.10/dist/vue.js"></script>
 </head>
@@ -11,8 +11,9 @@
 <body>
 <div class="content">
 <div id="app">
+    <h1>ANYA 変換がんばるます！</h1>
     <input type="text" v-model="inputText" v-on:input="convertText"/><br/>
-    [[ convText ]]
+    <h2>[[ convText ]]</h2>
 </div>
 </div>
 </body>
