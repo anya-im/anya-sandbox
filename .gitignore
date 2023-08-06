@@ -134,6 +134,7 @@ dmypy.json
 # bin
 sudachidic/*.csv
 anya-dic.db
+anya-dic.pb
 anya.mdl
 
 # data
