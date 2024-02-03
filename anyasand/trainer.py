@@ -12,10 +12,6 @@ from torch.utils.data import Dataset
 from anyasand.model import AnyaAE
 from anyasand.dictionary import DictionaryTrainer
 
-formatter = '%(asctime)s [%(name)s] %(levelname)s :  %(message)s'
-logging.basicConfig(level=logging.INFO, format=formatter)
-logger = logging.getLogger("anyasand-trainer")
-
 
 class AnyaDatasets(Dataset):
     def __init__(self, corpus_data, dictionary, max_data_size=1000):
@@ -66,7 +62,9 @@ class Trainer:
         #if os.path.isfile(out_model_path):
         #    model.load_state_dict(torch.load(out_model_path))
 
-        model = model.to(self._device)
+        dummy_input = torch.randn((self._dict.input_vec_size,))
+        traced_script_module = torch.jit.script(model, dummy_input)
+
         optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=0.001)
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=20, eta_min=0.0001)
 
@@ -124,12 +122,10 @@ class Trainer:
                               test_crr / test_cnt * 100))
 
             torch.save(model.to('cpu').state_dict(), out_model_path)
+            traced_script_module.save("anya.pt")
 
         # save
         self._dict.close()
-
-        dummy_input = torch.randn((self._dict.input_vec_size,))
-        torch.onnx.export(model, dummy_input, "anya.onnx", verbose=True)
 
     def _compute_loss(self, y, y_in):
         """
@@ -183,18 +179,3 @@ class Trainer:
         return cnt, correct
     """
 
-
-def main():
-    arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument('-i', '--in_db_path', help='input training corpus path', default="./anya-corpus.db")
-    arg_parser.add_argument('-d', '--db_path', help='dictionary database path', default="./anya-dic.db")
-    arg_parser.add_argument('-o', '--out_path', help='output model file path', default="anya.mdl")
-    arg_parser.add_argument('-e', '--epoch_num', help='epoch num', default=100)
-    args = arg_parser.parse_args()
-
-    trainer = Trainer(args.in_db_path, args.db_path, args.epoch_num)
-    trainer(args.out_path)
-
-
-if __name__ == "__main__":
-    main()
