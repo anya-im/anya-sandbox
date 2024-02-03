@@ -145,3 +145,5 @@ anya-corpus.db
 anya-fasttext.bin
 anya-fasttext.vec
 anya.pt
+anya-dic-pos.csv
+anya-dic.csv
