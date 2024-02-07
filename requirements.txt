@@ -14,3 +14,4 @@ sudachipy
 sudachidict_full
 grpcio
 websockets
+msgpack-python
