@@ -139,12 +139,15 @@ anya.mdl
 
 # data
 corpus/*.txt
+corpus/*.TXT
 out/
 anya-corpus-wakati.txt
 anya-corpus.db
 anya-fasttext.bin
 anya-fasttext.vec
 anya.pt
-anya-dic-pos.csv
-anya-dic.csv
+anya.onnx
+anya-dic-pos.tsv
+anya-dic.tsv
 anya-dic.msg
+*.csv

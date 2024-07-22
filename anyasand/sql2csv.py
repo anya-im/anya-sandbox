@@ -6,7 +6,7 @@ from tqdm import tqdm
 
 
 class Sql2Csv:
-    def __init__(self, db_path="./anya-dic.db", out_pos_path="./anya-dic-pos.csv", out_path="./anya-dic.csv", vec_size=8):
+    def __init__(self, db_path="./anya-dic.db", out_pos_path="./anya-dic-pos.tsv", out_path="./anya-dic.tsv", vec_size=8):
         self._db_path = db_path
         self._out_pos_path = out_pos_path
         self._out_path = out_path
@@ -18,14 +18,14 @@ class Sql2Csv:
 
         print("1: Positions")
         with open(self._out_pos_path, "w") as f:
-            writer = csv.writer(f)
+            writer = csv.writer(f, delimiter="\t")
             cur.execute("SELECT name FROM positions;")
             for data in cur.fetchall():
                 writer.writerow([data[0]])
 
         print("2: Words")
         with open(self._out_path, "w") as f:
-            writer = csv.writer(f)
+            writer = csv.writer(f, delimiter="\t")
             cur.execute("SELECT name, read, pos, cost, vec FROM words;")
             results = cur.fetchall()
             for data in tqdm(results):

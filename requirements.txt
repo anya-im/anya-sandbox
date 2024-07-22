@@ -15,3 +15,4 @@ sudachidict_full
 grpcio
 websockets
 msgpack-python
+protobuf>=3.19.6

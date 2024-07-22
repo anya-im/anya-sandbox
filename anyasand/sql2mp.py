@@ -39,8 +39,7 @@ class Sql2Mp:
 
         print("3: Serialize")
         with open(self._out_path, "wb") as f:
-            f.write(msgpack.packb(pos))
-            f.write(msgpack.packb(words))
+            f.write(msgpack.packb([pos, words]))
 
 
 def main():
